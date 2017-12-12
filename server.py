@@ -33,10 +33,7 @@ class ChatServer(asyncore.dispatcher):
 
     
     def handle_accept(self):
-    	"""
-    	Use accept call to create socket for communication between clients
-    	
-    	"""
+    	# accept connect call
         conn, addr = self.accept()
         ChatSession(self, conn)
 
