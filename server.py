@@ -1,111 +1,215 @@
-import wx
-import telnetlib
-from time import sleep
-import _thread as thread
+import asynchat
+import asyncore
 
-class LoginFrame(wx.Frame):
-    """
-    登录窗口
-    """
-    def __init__(self, parent, id, title, size):
-        # 初始化，添加控件并绑定事件
-        wx.Frame.__init__(self, parent, id, title)
-        self.SetSize(size)
-        self.Center()
-        self.serverAddressLabel = wx.StaticText(self, label="Server Address", pos=(10, 50), size=(120, 25))
-        self.userNameLabel = wx.StaticText(self, label="UserName", pos=(40, 100), size=(120, 25))
-        self.serverAddress = wx.TextCtrl(self, pos=(120, 47), size=(150, 25))
-        self.userName = wx.TextCtrl(self, pos=(120, 97), size=(150, 25))
-        self.loginButton = wx.Button(self, label='Login', pos=(80, 145), size=(130, 30))
-        # 绑定登录方法
-        self.loginButton.Bind(wx.EVT_BUTTON, self.login)
-        self.Show()
 
-    def login(self, event):
-        # 登录处理
+# Define Port Number 
+PORT = 8080
+
+# Define End Session Exception Class
+class EndSession(Exception):
+    pass
+
+
+class ChatServer(asyncore.dispatcher):
+    """
+    Chat Server:
+    	Server Can create listen socket;
+    	Bind port to the listen socket & Listen;
+    	@attribute, users: {} list to contain user information
+    	@attribute, main_room: a ChatRoom Class  
+    """
+
+    def __init__(self, port):
+        asyncore.dispatcher.__init__(self)
+        # set up listen socket
+        self.create_socket()
+        # let the addr can use multiple times
+        self.set_reuse_addr()
+        # bind & listen on the port
+        self.bind(('', port))
+        self.listen(5)
+        self.users = {}
+        self.main_room = ChatRoom(self)
+
+    
+    def handle_accept(self):
+    	"""
+    	Use accept call to create socket for communication between clients
+    	
+    	"""
+        conn, addr = self.accept()
+        ChatSession(self, conn)
+
+class ChatSession(asynchat.async_chat):
+    """
+    Communicate between the client
+    """
+
+    def __init__(self, server, sock):
+        asynchat.async_chat.__init__(self, sock)
+        self.server = server
+        self.set_terminator(b'\n')
+        self.data = []
+        self.name = None
+        self.enter(LoginRoom(server))
+
+    def enter(self, room):
+        # 从当前房间移除自身，然后添加到指定房间
         try:
-            serverAddress = self.serverAddress.GetLineText(0).split(':')
-            con.open(serverAddress[0], port=int(serverAddress[1]), timeout=10)
-            response = con.read_some()
-            if response != b'Connect Success':
-                self.showDialog('Error', 'Connect Fail!', (200, 100))
-                return
-            con.write(('login ' + str(self.userName.GetLineText(0)) + '\n').encode("utf-8"))
-            response = con.read_some()
-            if response == b'UserName Empty':
-                self.showDialog('Error', 'UserName Empty!', (200, 100))
-            elif response == b'UserName Exist':
-                self.showDialog('Error', 'UserName Exist!', (200, 100))
-            else:
-                self.Close()
-                ChatFrame(None, 2, title='ShiYanLou Chat Client', size=(500, 400))
-        except Exception:
-            self.showDialog('Error', 'Connect Fail!', (95, 20))
+            cur = self.room
+        except AttributeError:
+            pass
+        else:
+            cur.remove(self)
+        self.room = room
+        room.add(self)
 
-    def showDialog(self, title, content, size):
-        # 显示错误信息对话框
-        dialog = wx.Dialog(self, title=title, size=size)
-        dialog.Center()
-        wx.StaticText(dialog, label=content)
-        dialog.ShowModal()
+    def collect_incoming_data(self, data):
+        # 接收客户端的数据
+        self.data.append(data.decode("utf-8"))
 
+    def found_terminator(self):
+        # 当客户端的一条数据结束时的处理
+        line = ''.join(self.data)
+        self.data = []
+        try:
+            self.room.handle(self, line.encode("utf-8"))
+        # 退出聊天室的处理
+        except EndSession:
+            self.handle_close()
 
+    def handle_close(self):
+        # 当 session 关闭时，将进入 LogoutRoom
+        asynchat.async_chat.handle_close(self)
+        self.enter(LogoutRoom(self.server))
 
-# window Frame
-class ChatFrame(wx.Frame):
+class CommandHandler:
     """
-    聊天窗口
+    命令处理类
     """
 
-    def __init__(self, parent, id, title, size):
-        # 初始化，添加控件并绑定事件
-        wx.Frame.__init__(self, parent, id, title)
-        self.SetSize(size)
-        self.Center()
-        self.chatFrame = wx.TextCtrl(self, pos=(5, 5), size=(490, 310), style=wx.TE_MULTILINE | wx.TE_READONLY)
-        self.message = wx.TextCtrl(self, pos=(5, 320), size=(300, 25))
-        self.sendButton = wx.Button(self, label="Send", pos=(310, 320), size=(58, 25))
-        self.usersButton = wx.Button(self, label="Users", pos=(373, 320), size=(58, 25))
-        self.closeButton = wx.Button(self, label="Close", pos=(436, 320), size=(58, 25))
-        # 发送按钮绑定发送消息方法
-        self.sendButton.Bind(wx.EVT_BUTTON, self.send)
-        # Users按钮绑定获取在线用户数量方法
-        self.usersButton.Bind(wx.EVT_BUTTON, self.lookUsers)
-        # 关闭按钮绑定关闭方法
-        self.closeButton.Bind(wx.EVT_BUTTON, self.close)
-        thread.start_new_thread(self.receive, ())
-        self.Show()
+    def unknown(self, session, cmd):
+        # 响应未知命令
+        # 通过 aynchat.async_chat.push 方法发送消息
+        session.push(('Unknown command {} \n'.format(cmd)).encode("utf-8"))
 
-    def send(self, event):
-        # 发送消息
-        message = str(self.message.GetLineText(0)).strip()
-        if message != '':
-            con.write(('say ' + message + '\n').encode("utf-8"))
-            self.message.Clear()
+    def handle(self, session, line):
+        line = line.decode()
+        # 命令处理
+        if not line.strip():
+            return
+        parts = line.split(' ', 1)
+        cmd = parts[0]
+        try:
+            line = parts[1].strip()
+        except IndexError:
+            line = ''
+        # 通过协议代码执行相应的方法
+        method = getattr(self, 'do_' + cmd, None)
+        try:
+            method(session, line)
+        except TypeError:
+            self.unknown(session, cmd)
 
-    def lookUsers(self, event):
-        # 查看当前在线用户
-        con.write(b'look\n')
+class Room(CommandHandler):
+    """
+    包含多个用户的环境，负责基本的命令处理和广播
+    """
 
-    def close(self, event):
-        # 关闭窗口
-        con.write(b'logout\n')
-        con.close()
-        self.Close()
+    def __init__(self, server):
+        self.server = server
+        self.sessions = []
 
-    def receive(self):
-        # 接受服务器的消息
-        while True:
-            sleep(0.6)
-            result = con.read_very_eager()
-            if result != '':
-                self.chatFrame.AppendText(result)
+    def add(self, session):
+        # 一个用户进入房间
+        self.sessions.append(session)
+
+    def remove(self, session):
+        # 一个用户离开房间
+        self.sessions.remove(session)
+
+    def broadcast(self, line):
+        # 向所有的用户发送指定消息
+        # 使用 asynchat.asyn_chat.push 方法发送数据
+        for session in self.sessions:
+            session.push(line)
+
+    def do_logout(self, session, line):
+        # 退出房间
+        raise EndSession
+
+
+class LoginRoom(Room):
+    """
+    处理登录用户
+    """
+
+    def add(self, session):
+        # 用户连接成功的回应
+        Room.add(self, session)
+        # 使用 asynchat.asyn_chat.push 方法发送数据
+        session.push(b'Connect Success')
+
+    def do_login(self, session, line):
+        # 用户登录逻辑
+        name = line.strip()
+        # 获取用户名称
+        if not name:
+            session.push(b'UserName Empty')
+        # 检查是否有同名用户
+        elif name in self.server.users:
+            session.push(b'UserName Exist')
+        # 用户名检查成功后，进入主聊天室
+        else:
+            session.name = name
+            session.enter(self.server.main_room)
+
+
+class LogoutRoom(Room):
+    """
+    处理退出用户
+    """
+
+    def add(self, session):
+        # 从服务器中移除
+        try:
+            del self.server.users[session.name]
+        except KeyError:
+            pass
+
+
+class ChatRoom(Room):
+    """
+    聊天用的房间
+    """
+
+    def add(self, session):
+        # 广播新用户进入
+        session.push(b'Login Success')
+        self.broadcast((session.name + ' has entered the room.\n').encode("utf-8"))
+        self.server.users[session.name] = session
+        Room.add(self, session)
+
+    def remove(self, session):
+        # 广播用户离开
+        Room.remove(self, session)
+        self.broadcast((session.name + ' has left the room.\n').encode("utf-8"))
+
+    def do_say(self, session, line):
+        # 客户端发送消息
+        self.broadcast((session.name + ': ' + line + '\n').encode("utf-8"))
+
+    def do_look(self, session, line):
+        # 查看在线用户
+        session.push(b'Online Users:\n')
+        for other in self.sessions:
+            session.push((other.name + '\n').encode("utf-8"))
 
 if __name__ == '__main__':
-    app = wx.App()
-    con = telnetlib.Telnet()
-    LoginFrame(None, -1, title="Login", size=(320, 250))
-    app.MainLoop()
 
-
-
+    s = ChatServer(PORT)
+    try:
+        print("chat serve run at '0.0.0.0:{0}'".format(PORT))
+        asyncore.loop()
+    except KeyboardInterrupt:
+        print("chat server exit")

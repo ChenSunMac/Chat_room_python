@@ -5,24 +5,25 @@ import _thread as thread
 
 class LoginFrame(wx.Frame):
     """
-    登录窗口
+    Login Frame using Pythonwx GUI
     """
     def __init__(self, parent, id, title, size):
-        # 初始化，添加控件并绑定事件
+        # Initialize the component
         wx.Frame.__init__(self, parent, id, title)
         self.SetSize(size)
         self.Center()
-        self.serverAddressLabel = wx.StaticText(self, label="Server Address", pos=(10, 50), size=(120, 25))
-        self.userNameLabel = wx.StaticText(self, label="UserName", pos=(40, 100), size=(120, 25))
+        self.serverAddressLabel = wx.StaticText(self, label="Enter the Server Address:", pos=(10, 50), size=(120, 25))
+        self.userNameLabel = wx.StaticText(self, label="User Name:", pos=(40, 100), size=(120, 25))
         self.serverAddress = wx.TextCtrl(self, pos=(120, 47), size=(150, 25))
         self.userName = wx.TextCtrl(self, pos=(120, 97), size=(150, 25))
         self.loginButton = wx.Button(self, label='Login', pos=(80, 145), size=(130, 30))
-        # 绑定登录方法
+        # Bind the button with self.login function
         self.loginButton.Bind(wx.EVT_BUTTON, self.login)
+        # show the frame
         self.Show()
 
     def login(self, event):
-        # 登录处理
+        # Handle login (when click the Button)
         try:
             serverAddress = self.serverAddress.GetLineText(0).split(':')
             con.open(serverAddress[0], port=int(serverAddress[1]), timeout=10)
@@ -38,12 +39,12 @@ class LoginFrame(wx.Frame):
                 self.showDialog('Error', 'UserName Exist!', (200, 100))
             else:
                 self.Close()
-                ChatFrame(None, 2, title='ShiYanLou Chat Client', size=(500, 400))
+                ChatFrame(None, 2, title='Test Chat Client', size=(500, 400))
         except Exception:
             self.showDialog('Error', 'Connect Fail!', (95, 20))
 
     def showDialog(self, title, content, size):
-        # 显示错误信息对话框
+        # Display the dialog window
         dialog = wx.Dialog(self, title=title, size=size)
         dialog.Center()
         wx.StaticText(dialog, label=content)
@@ -54,11 +55,11 @@ class LoginFrame(wx.Frame):
 # window Frame
 class ChatFrame(wx.Frame):
     """
-    聊天窗口
+    Chat Frame using Pythonwx GUI
     """
 
     def __init__(self, parent, id, title, size):
-        # 初始化，添加控件并绑定事件
+        # Initialize the GUI and bind all parts
         wx.Frame.__init__(self, parent, id, title)
         self.SetSize(size)
         self.Center()
@@ -67,34 +68,35 @@ class ChatFrame(wx.Frame):
         self.sendButton = wx.Button(self, label="Send", pos=(310, 320), size=(58, 25))
         self.usersButton = wx.Button(self, label="Users", pos=(373, 320), size=(58, 25))
         self.closeButton = wx.Button(self, label="Close", pos=(436, 320), size=(58, 25))
-        # 发送按钮绑定发送消息方法
+        # send button bind with self.send() function
         self.sendButton.Bind(wx.EVT_BUTTON, self.send)
-        # Users按钮绑定获取在线用户数量方法
+        # users button bind with the look Users function
         self.usersButton.Bind(wx.EVT_BUTTON, self.lookUsers)
-        # 关闭按钮绑定关闭方法
+        # close the session window 
         self.closeButton.Bind(wx.EVT_BUTTON, self.close)
         thread.start_new_thread(self.receive, ())
         self.Show()
 
     def send(self, event):
-        # 发送消息
+        # send message, e.g. write data to the socket (to) server
         message = str(self.message.GetLineText(0)).strip()
         if message != '':
             con.write(('say ' + message + '\n').encode("utf-8"))
             self.message.Clear()
 
     def lookUsers(self, event):
-        # 查看当前在线用户
+        # look for Users (send request to server)
         con.write(b'look\n')
 
     def close(self, event):
-        # 关闭窗口
+        # look for Users (send request to server)
         con.write(b'logout\n')
+        # after telling server I'm out, just close the socket here
         con.close()
         self.Close()
 
     def receive(self):
-        # 接受服务器的消息
+        # accept the message send by serve
         while True:
             sleep(0.6)
             result = con.read_very_eager()
@@ -103,6 +105,7 @@ class ChatFrame(wx.Frame):
 
 if __name__ == '__main__':
     app = wx.App()
+    # send connect() through Telnet() and create socket to communicate to server
     con = telnetlib.Telnet()
     LoginFrame(None, -1, title="Login", size=(320, 250))
     app.MainLoop()
